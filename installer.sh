@@ -1,3 +1,4 @@
+cat > /tmp/installer.sh <<'EOF'
 #!/bin/sh
 # installer.sh — pasang dari ZIP, timpa file, chmod +x semua, tanam rc.local, start hgled & rotor
 
@@ -69,21 +70,21 @@ for REL in $FILES; do
     /usr/bin/hgled|/usr/bin/modem|/www/cgi-bin/*.sh)
       grep -q '^#!' "$DST" || sed -i '1i #!/bin/sh' "$DST"
       ;;
-  endesac
+  esac
+
   # CHMOD +x semua file (sesuai permintaan)
   chmod +x "$DST" 2>/dev/null || true
 
   echo "  + $DST"
 done
 
-# (opsional) jika env dipasang di /etc/init.d/hgled.env, duplikasikan ke /etc/hgled.env agar mudah dibaca skrip
+# (opsional) duplikasi env ke /etc/hgled.env agar mudah dibaca script
 if [ -f /etc/init.d/hgled.env ] && [ ! -f /etc/hgled.env ]; then
   cp -f /etc/init.d/hgled.env /etc/hgled.env || true
 fi
 
 # ---------- UHTTPD: ENABLE CGI ----------
 if command -v uci >/dev/null 2>&1; then
-  # aktifkan interpreter .sh bila belum
   if ! uci show uhttpd 2>/dev/null | grep -q "main.interpreter=.*\.sh=/bin/sh"; then
     uci add_list uhttpd.main.interpreter='.sh=/bin/sh' 2>/dev/null || true
   fi
@@ -99,10 +100,8 @@ if [ ! -f "$RC" ]; then
   echo "exit 0"   >> "$RC"
   chmod +x "$RC"
 fi
-
 # hapus blok lama bila ada
 sed -i "/^# >>> hgled boot start/,/^# >>> hgled boot end/d" "$RC"
-
 # sisipkan blok baru sebelum exit 0
 awk '
 BEGIN{printed=0}
@@ -150,4 +149,6 @@ echo "[installer] Cleanup ZIP & extracted dir"
 rm -f "$ZIP_PATH" 2>/dev/null || true
 rm -rf $EXTRACT_DIR_GLOB 2>/dev/null || true
 
-echo "[installer] Selesai. Buka UI (jika ada): http://$(uci get network.lan.ipaddr 2>/dev/null || echo 192.168.1.1)/"
+echo "[installer] Selesai."
+EOF
+sh /tmp/installer.sh
