@@ -1,0 +1,72 @@
+#!/bin/sh
+# modem - CLI sederhana untuk panggil endpoint modem
+# Pakai: modem ip | modem rb | modem sd
+# Env opsional: MODEM_BASE=http://192.168.8.1:8989  TIMEOUT=10  RETRIES=1
+
+set -eu
+
+LOGGER_TAG="${LOGGER_TAG:-modem-cli}"
+BASE="${MODEM_BASE:-http://192.168.8.1:8989}"
+TIMEOUT="${TIMEOUT:-10}"
+RETRIES="${RETRIES:-1}"
+
+CHANGEIP_URL="$BASE/cgi-bin/changeip.cgi"
+REBOOT_URL="$BASE/cgi-bin/reboot.cgi"
+SHUTDOWN_URL="$BASE/cgi-bin/shutdown.cgi"
+
+log() {
+  TS="$(date '+%F %T')"
+  command -v logger >/dev/null 2>&1 && logger -t "$LOGGER_TAG" "$*"
+  printf '%s %s\n' "$TS" "$*"
+}
+
+usage() {
+  echo "Pakailah:"
+  echo "  modem ip          # ganti IP (GET $CHANGEIP_URL)"
+  echo "  modem rb          # reboot    (GET $REBOOT_URL)"
+  echo "  modem sd          # shutdown  (GET $SHUTDOWN_URL)"
+  echo
+  echo "Env opsional: MODEM_BASE=\"$BASE\" TIMEOUT=$TIMEOUT RETRIES=$RETRIES"
+}
+
+http_get() {
+  url="$1"
+  i=0
+  rc=2
+  while [ "$i" -le "$RETRIES" ]; do
+    i=$((i+1))
+    if command -v curl >/dev/null 2>&1; then
+      code="$(curl -sS -m "$TIMEOUT" -o /dev/null -w '%{http_code}' "$url" 2>/tmp/modem.curl.err || echo 000)"
+      case "$code" in 2??) return 0 ;; esac
+    elif command -v wget >/dev/null 2>&1; then
+      if wget -q -T "$TIMEOUT" -O - "$url" >/dev/null 2>/tmp/modem.wget.err; then
+        return 0
+      fi
+    else
+      log "curl/wget tidak ditemukan. Pasang salah satunya."
+      exit 1
+    fi
+    [ "$i" -le "$RETRIES" ] && sleep 2
+  done
+  return "$rc"
+}
+
+case "${1:-}" in
+  -h|--help|"") usage; exit 0 ;;
+esac
+
+case "$1" in
+  ip|changeip) ACTION=CHANGEIP; URL="$CHANGEIP_URL" ;;
+  rb|reboot)   ACTION=REBOOT;   URL="$REBOOT_URL" ;;
+  sd|shutdown) ACTION=SHUTDOWN; URL="$SHUTDOWN_URL" ;;
+  *) usage; exit 64 ;;  # EX_USAGE
+esac
+
+log "Memanggil $ACTION → $URL"
+if http_get "$URL"; then
+  log "$ACTION: sukses"
+  exit 0
+else
+  log "$ACTION: gagal (cek /tmp/modem.curl.err atau /tmp/modem.wget.err)"
+  exit 2
+fi
