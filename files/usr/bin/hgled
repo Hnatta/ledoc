@@ -2,8 +2,9 @@
 # === load konfigurasi tunggal (opsional) ===
 ENV_FILE="${ENV_FILE:-/etc/hgled.env}"
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
-
 # hgled — GPIO Wrapper + Internet Indicator + Rotor Clash/YACD (BusyBox-friendly)
+# (sisanya sesuai script lengkap yang sudah diberikan sebelumnya)
+
 # Fitur:
 #   hgled -power on|off|warn|dis
 #   hgled -lan   on|off|warn|dis
@@ -12,14 +13,13 @@ ENV_FILE="${ENV_FILE:-/etc/hgled.env}"
 #   hgled -r     (restart/daemonize indikator LED — EXTERNAL_STATE aware)
 #   hgled -s     (stop indikator LED)
 #   hgled -l     (loop LED di foreground)
-#   hgled -rotor on|off  (mulai/berhenti rotor konektivitas + sinkron LED)
+#   hgled -rotor on|off|stop  (mulai/berhenti/stop rotor konektivitas + sinkron LED)
 #
 # Aturan rotor (untuk group SGR_ACTIVE, IDN_ACTIVE, WRD_ACTIVE):
 # - Group tidak ada ping: ping 2x jeda 3s -> jika gagal, curl /group/<G>/delay -> tunggu 2s -> ping 1x -> gagal => mark_fail
-# - Group ada ping: mark_ok; tunggu 120s sebelum ping berikutnya
+# - Group ada ping: mark_ok; tunggu per-grup (SGR:120s, IDN:100s, WRD:80s) sebelum ping berikutnya
 # - Jika semua group mark_fail: LED offline; curl semua group -> 2s -> ping semua -> jika tetap fail: /usr/bin/modem ip, tunggu 10s, lalu ping semua group lagi
 # - Jika minimal satu group OK: LED Online
-
 # ================== KONFIG LED ==================
 SERVICE_NAME="Internet Indicator"
 CHECK_URL="${CHECK_URL:-http://www.gstatic.com/generate_204}"  # (dipakai jika EXTERNAL_STATE=0)
@@ -29,23 +29,23 @@ PIDFILE="/var/run/internet-indicator.pid"
 STATEFILE="/var/run/internet-indicator.state"
 GPIO="/sys/class/gpio"
 EXTERNAL_STATE="${EXTERNAL_STATE:-0}"   # 1 = LED mengikuti file STATEFILE (dikontrol rotor)
-
 # ================== KONFIG ROTOR ==================
 CTRL="${CTRL:-http://127.0.0.1:9090}"
 SECRET="${SECRET:-12345}"                        # Bearer utk /proxies/<name>/delay
 GROUPS="${GROUPS:-SGR_ACTIVE IDN_ACTIVE WRD_ACTIVE}"
-
 PING_URL="${PING_URL:-https://www.gstatic.com/generate_204}"
 TIMEOUT_MS="${TIMEOUT_MS:-3000}"                 # utk /proxies/*/delay
 
-RECHECK_SEC="${RECHECK_SEC:-120}"                # cache OK 120 detik (tunda ping berikutnya)
+# Delay per-grup (detik) - tunda ping berikutnya
+SGR_ACTIVE_DELAY="${SGR_ACTIVE_DELAY:-120}"      # 120 detik untuk SGR_ACTIVE
+IDN_ACTIVE_DELAY="${IDN_ACTIVE_DELAY:-100}"      # 100 detik untuk IDN_ACTIVE
+WRD_ACTIVE_DELAY="${WRD_ACTIVE_DELAY:-80}"       # 80 detik untuk WRD_ACTIVE
+
 RETRY_GAP_SEC="${RETRY_GAP_SEC:-3}"              # jeda antar 2 retry saat grup gagal
 AFTER_CURL_WAIT_SEC="${AFTER_CURL_WAIT_SEC:-2}"  # tunggu 2 detik setelah curl fallback
 MODEM_CMD="${MODEM_CMD:-/usr/bin/modem ip}"
 MODEM_WAIT_SEC="${MODEM_WAIT_SEC:-10}"           # tunggu 10 detik setelah modem ip
-
 ROTOR_PIDFILE="/var/run/hgled-rotor.pid"
-
 # ================== UTIL UMUM ==================
 is_root(){ [ "$(id -u)" -eq 0 ] || { echo "Run as root"; exit 1; }; }
 need_root_or_exit(){ [ "$(id -u)" -eq 0 ] || { echo "This command must be run as root" 1>&2; exit 1; }; }
@@ -62,7 +62,6 @@ sleep_compat(){
     *) sleep "$d" ;;
   esac
 }
-
 # ================== GPIO/LED ==================
 gpio_setup(){ p="$1"; [ -z "$p" ] && return 0; [ -d "$GPIO/gpio$p" ] || echo "$p" > "$GPIO/export" 2>/dev/null; echo out > "$GPIO/gpio$p/direction" 2>/dev/null; }
 gpio_write(){ p="$1"; v="$2"; [ -z "$p" ] && return 0; echo "$v" > "$GPIO/gpio$p/value" 2>/dev/null; }
@@ -80,7 +79,6 @@ power(){ need_root_or_exit; dual_general "$1" "521" "517"; }  # hijau=521, merah
 lan()  { need_root_or_exit; dual_general "$1" "547" "548"; }  # hijau=547, merah=548
 usb(){ need_root_or_exit; u="505"; gpio_setup "$u"; [ "$1" = reset ] && { gpio_write "$u" 0; sleep 1; gpio_write "$u" 1; }; }
 ir()   { need_root_or_exit; dual_general "$1" "" "507"; }     # hanya pin_off
-
 # ================== shim hgledon ==================
 hgledon(){
   case "$1" in
@@ -91,7 +89,6 @@ hgledon(){
     *) echo "hgledon usage: -power|-lan [on|off|warn|dis] | -usb reset | -ir on|off" 1>&2; return 1 ;;
   esac
 }
-
 # ================== HEALTH/LED SERVICE ==================
 cleanup_led(){
   hgledon -lan dis 2>/dev/null
@@ -140,20 +137,15 @@ do_step(){
 }
 read_led_state(){ [ -s "$STATEFILE" ] && cat "$STATEFILE" 2>/dev/null || echo ""; }
 write_led_state(){ printf "%s" "$1" > "$STATEFILE" 2>/dev/null || true; }
-
 loop_led(){
   trap 'cleanup_led; exit 0' INT TERM
   hgledon -lan dis
   hgledon -power dis
-
   # Mulai dari OFFLINE kecuali EXTERNAL_STATE=1 (status dikendalikan rotor)
   [ "$EXTERNAL_STATE" = "1" ] || printf "offline" >"$STATEFILE" 2>/dev/null || true
-
   mode="offline"; step=0; HEALTH_PID=""
   last_desired="offline"; flip_streak=0
-
   [ "$EXTERNAL_STATE" = "1" ] || start_health_check_bg
-
   while :; do
     desired=""
     [ -s "$STATEFILE" ] && desired="$(cat "$STATEFILE" 2>/dev/null)"
@@ -180,12 +172,10 @@ loop_led(){
         last_desired="$mode"
       fi
     fi
-
     do_step "$mode" "$step"
     delay="$(step_delay "$mode" "$step")"
     step=$(( (step + 1) % 4 ))
     [ "$delay" != "0" ] && sleep_compat "$delay"
-
     if [ "$EXTERNAL_STATE" != "1" ]; then
       if [ -z "${HEALTH_PID:-}" ] || ! kill -0 "${HEALTH_PID}" 2>/dev/null; then
         start_health_check_bg
@@ -193,7 +183,6 @@ loop_led(){
     fi
   done
 }
-
 start_led(){
   is_root
   mkdir -p "$(dirname "$PIDFILE")"
@@ -230,17 +219,31 @@ stop_led(){
   cleanup_led
   if [ -n "$stopped" ]; then echo "Stopped $SERVICE_NAME."; else echo "$SERVICE_NAME not running."; fi
 }
-
 # ================== ROTOR (Clash/YACD) ==================
 STATE_DIR="${STATE_DIR:-/tmp/hgled-rotor}"
 mkdir -p "$STATE_DIR"
 ok_file(){ echo "$STATE_DIR/$1.ok"; }
 ts_now(){ date +%s; }
-is_ok_cached(){ g="$1"; f="$(ok_file "$g")"; [ -f "$f" ] || return 1; now="$(ts_now)"; old="$(cat "$f" 2>/dev/null || echo 0)"; [ $((now - old)) -lt "$RECHECK_SEC" ]; }
+
+# Fungsi cache dengan delay per-grup spesifik (tanpa fallback RECHECK_SEC)
+is_ok_cached(){ 
+  g="$1"; f="$(ok_file "$g")"; [ -f "$f" ] || return 1; 
+  now="$(ts_now)"; old="$(cat "$f" 2>/dev/null || echo 0)"
+  
+  # Delay spesifik per grup (tidak ada fallback)
+  case "$g" in
+    SGR_ACTIVE) delay="$SGR_ACTIVE_DELAY" ;;
+    IDN_ACTIVE) delay="$IDN_ACTIVE_DELAY" ;;
+    WRD_ACTIVE) delay="$WRD_ACTIVE_DELAY" ;;
+    *) return 1 ;;  # grup tidak dikenal langsung return fail (tidak ada fallback)
+  esac
+  
+  [ $((now - old)) -lt "$delay" ]
+}
+
 mark_ok(){ date +%s > "$(ok_file "$1")"; }
 mark_fail(){ rm -f "$(ok_file "$1")" 2>/dev/null || true; }
 any_ok_now(){ for g in $GROUPS; do is_ok_cached "$g" && return 0; done; return 1; }
-
 # Ping via /proxies/<name>/delay (YACD-style)
 ping_group(){
   g="$1"; enc="$(printf '%s' "$g" | sed 's/ /%20/g')"
@@ -253,7 +256,6 @@ ping_group(){
   )"
   printf '%s' "$out" | grep -q '"delay"'
 }
-
 # Fallback per grup: /group/<name>/delay (sesuai permintaan, Bearer 12345)
 force_group_delay(){
   g="$1"
@@ -265,76 +267,61 @@ force_group_delay(){
   )"
   printf '%s' "$out" | grep -q '"delay"'
 }
-
 set_led_online(){ write_led_state "online"; }
 set_led_offline(){ write_led_state "offline"; }
-
 rotor_once_for_group(){
   G="$1"
-  # Lewati jika masih OK (cache 120s)
+  # Lewati jika masih OK (cache per-grup)
   if is_ok_cached "$G"; then return 0; fi
-
   # ping #1
-  if ping_group "$G"; then mark_ok "$G"; log "OK: $G (ping #1)"; return 0; fi
-
+  if ping_group "$G"; then mark_ok "$G"; log "OK: $G (Halo grup, kamu sehat?)"; return 0; fi
   # ping #2 (jeda 3s)
   sleep "$RETRY_GAP_SEC"
-  if ping_group "$G"; then mark_ok "$G"; log "OK: $G (ping #2)"; return 0; fi
-
+  if ping_group "$G"; then mark_ok "$G"; log "OK: $G (Halo lagi!)"; return 0; fi
   # ping #3 (jeda 3s)
   sleep "$RETRY_GAP_SEC"
-  if ping_group "$G"; then mark_ok "$G"; log "OK: $G (ping #3)"; return 0; fi
-
+  if ping_group "$G"; then mark_ok "$G"; log "OK: $G (Halo terakhir!)"; return 0; fi
   # 2x gagal (ping#2 & ping#3 gagal) → jalankan curl fallback, tunggu 2s, ping sekali
-  log "FALLBACK: $G -> /group/$G/delay"
+  log "Dokter, tolong grup ini sakit! $G -> /group/$G/delay"
   force_group_delay "$G" >/dev/null 2>&1 || true
   sleep "$AFTER_CURL_WAIT_SEC"
   if ping_group "$G"; then
-    mark_ok "$G"; log "OK: $G (after fallback)"
+    mark_ok "$G"; log "OK: $G berhasil di obati"
   else
-    mark_fail "$G"; log "FAIL: $G (after fallback) -> mark_fail"
+    mark_fail "$G"; log "$G Sakit Parah ,Dokter kasih obat"
   fi
 }
-
 rotor_cycle(){
   # proses semua grup sesuai aturan
   for G in $GROUPS; do rotor_once_for_group "$G"; done
-
   if any_ok_now; then
     set_led_online
     return 0
   fi
-
   # Semua mark_fail: LED offline, coba mass-curl -> 2s -> mass-ping
   set_led_offline
-  log "ALERT: semua group mark_fail -> mass curl"
+  log "⚠️ Semua group sakit! -> Dokter kasih "obat besar""
   for G in $GROUPS; do force_group_delay "$G" >/dev/null 2>&1 || true; done
   sleep "$AFTER_CURL_WAIT_SEC"
-
   # Ping semua lagi
   any_ok=0
   for G in $GROUPS; do
-    if ping_group "$G"; then mark_ok "$G"; any_ok=1; log "OK: $G (after mass-curl)"; else mark_fail "$G"; fi
+    if ping_group "$G"; then mark_ok "$G"; any_ok=1; log "OK: $G Hore, obatnya berhasil.."; else mark_fail "$G"; fi
   done
-
   if [ "$any_ok" -eq 1 ]; then
     set_led_online
     return 0
   fi
-
   # Tetap semua gagal → modem ip, tunggu 10s, ping semua group
-  log "ALERT: tetap gagal -> $MODEM_CMD"
-  sh -c "$MODEM_CMD" || log "WARN: gagal menjalankan $MODEM_CMD"
+  log "⚠️ obatnya nggak berhasil! -> operasi besar $MODEM_CMD"
+  sh -c "$MODEM_CMD" || log "⚠️⚠️⚠️ gagal operasi $MODEM_CMD"
   sleep "$MODEM_WAIT_SEC"
-
   any_ok2=0
   for G in $GROUPS; do
     if ping_group "$G"; then mark_ok "$G"; any_ok2=1; log "OK: $G (after modem ${MODEM_WAIT_SEC}s)"; else mark_fail "$G"; fi
   done
-
   if [ "$any_ok2" -eq 1 ]; then set_led_online; else set_led_offline; fi
 }
-
 rotor_loop(){
   trap 'rm -f "$ROTOR_PIDFILE" 2>/dev/null; exit 0' INT TERM
   # Pastikan LED service jalan dalam EXTERNAL_STATE=1
@@ -346,7 +333,6 @@ rotor_loop(){
     sleep 1
   done
 }
-
 rotor_on(){
   is_root
   if [ -f "$ROTOR_PIDFILE" ] && kill -0 "$(cat "$ROTOR_PIDFILE" 2>/dev/null)" 2>/dev/null; then
@@ -359,7 +345,6 @@ rotor_on(){
   if command -v usleep >/dev/null 2>&1; then usleep 200000; else sleep 1; fi
   echo "Started rotor (pid $(cat "$ROTOR_PIDFILE"))."
 }
-
 rotor_off(){
   if [ -f "$ROTOR_PIDFILE" ]; then
     pid="$(cat "$ROTOR_PIDFILE" 2>/dev/null)"
@@ -370,6 +355,21 @@ rotor_off(){
   hgledon -power off
   hgledon -lan   off
   echo "Rotor stopped and LED set to power off + lan off."
+}
+
+# Fungsi baru: rotor_stop - stop rotor tapi LED sync tetap hidup
+rotor_stop(){
+  if [ -f "$ROTOR_PIDFILE" ]; then
+    pid="$(cat "$ROTOR_PIDFILE" 2>/dev/null)"
+    [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+    rm -f "$ROTOR_PIDFILE"
+  fi
+  
+  # Tetap jalankan LED service dalam mode normal (EXTERNAL_STATE=0)
+  # sehingga LED sync tetap berfungsi berdasarkan health check
+  EXTERNAL_STATE=0 "$0" -r >/dev/null 2>&1 || true
+  
+  echo "Rotor stopped. LED sync continues with normal health check."
 }
 
 # ================== CLI ==================
@@ -386,15 +386,18 @@ Usage:
     hgled -s      # stop LED
     hgled -l      # run LED loop in foreground
   Rotor:
-    hgled -rotor on
-    hgled -rotor off
+    hgled -rotor on    # start rotor dengan grup monitoring
+    hgled -rotor off   # stop rotor dan matikan LED
+    hgled -rotor stop  # stop rotor, LED sync tetap hidup
 Env penting:
   CTRL=$CTRL
   SECRET=$SECRET
   GROUPS="$GROUPS"
+  SGR_ACTIVE_DELAY=$SGR_ACTIVE_DELAY detik
+  IDN_ACTIVE_DELAY=$IDN_ACTIVE_DELAY detik  
+  WRD_ACTIVE_DELAY=$WRD_ACTIVE_DELAY detik
   PING_URL=$PING_URL
   TIMEOUT_MS=$TIMEOUT_MS
-  RECHECK_SEC=$RECHECK_SEC
   RETRY_GAP_SEC=$RETRY_GAP_SEC
   AFTER_CURL_WAIT_SEC=$AFTER_CURL_WAIT_SEC
   MODEM_CMD="$MODEM_CMD" (wait $MODEM_WAIT_SEC s)
@@ -402,7 +405,6 @@ Env penting:
   EXTERNAL_STATE=$EXTERNAL_STATE (1=LED ikut STATEFILE)
 EOF
 }
-
 case "${1:-}" in
   -power) [ -n "${2:-}" ] || { print_usage; exit 1; }; power "$2" ;;
   -lan)   [ -n "${2:-}" ] || { print_usage; exit 1; }; lan   "$2" ;;
@@ -413,9 +415,10 @@ case "${1:-}" in
   -s)     stop_led ;;
   -rotor)
       case "${2:-}" in
-        on)  rotor_on ;;
-        off) rotor_off ;;
-        *)   echo "Usage: hgled -rotor on|off"; exit 1 ;;
+        on)   rotor_on ;;
+        off)  rotor_off ;;
+        stop) rotor_stop ;;
+        *)    echo "Usage: hgled -rotor on|off|stop"; exit 1 ;;
       esac
       ;;
   __rotor_loop) rotor_loop ;;
