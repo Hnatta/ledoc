@@ -3,270 +3,174 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Rotor — Core Log & Ping</title>
+<title>Rotor — Core Log</title>
 <style>
-  :root{
-    --bg:#0b0f14; --panel:#0f151d; --text:#eaf1fb; --muted:#9aa7b8; --border:#1b2532;
-    --ok:#22c55e; --blue:#60a5fa; --warn:#facc15; --timeout:#fb923c; --err:#ef4444; --inf:#7aa2f7;
-    --r:12px;
-  }
+  :root{--bg:#0b0f14;--panel:#0f151d;--text:#eaf1fb;--muted:#9aa7b8;--border:#1b2532;
+    --ok:#22c55e;--err:#ef4444;--inf:#7aa2f7;--r:12px;--shadow:0 4px 12px rgba(0,0,0,0.2)}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 ui-sans-serif,system-ui,Segoe UI,Roboto,Arial;padding:16px}
-  .wrap{max-width:1100px;margin:0 auto;display:grid;gap:12px;grid-template-columns:1.1fr .9fr}
-  @media(max-width:980px){.wrap{grid-template-columns:1fr}}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:12px}
-  .head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px}
-  .title{font-weight:800}
-  .sub{color:var(--muted);font-size:12px}
+  .wrap{max-width:1100px;margin:0 auto}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);padding:12px;box-shadow:var(--shadow);transition:transform 0.2s}
+  .card:hover{transform:translateY(-2px)}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .pill{border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:12px}
-  .btn{appearance:none;border:1px solid var(--border);background:#0d131a;color:var(--text);padding:6px 10px;border-radius:10px;cursor:pointer}
-  input[type="text"],input[type="password"]{border:1px solid var(--border);background:#0d141b;color:var(--text);padding:6px 10px;border-radius:10px;outline:none}
-  input[type="checkbox"]{transform:translateY(1px)}
-  pre.log{margin:0;border:1px solid var(--border);border-radius:10px;background:#0a1016;height:420px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;padding:10px}
+  .pill{border:1px solid var(--border);border-radius:999px;padding:4px 10px;font-size:12px;background:#0d131a}
+  .btn{appearance:none;border:1px solid var(--border);background:#0d131a;color:var(--text);padding:6px 12px;border-radius:10px;cursor:pointer;font-weight:600;transition:background 0.2s}
+  .btn:hover{background:#1b2532}
+  input[type="text"]{border:1px solid var(--border);background:#0d141b;color:var(--text);padding:6px 10px;border-radius:10px;outline:none;font-size:12px}
+  input[type="checkbox"]{transform:translateY(1px);cursor:pointer}
+  pre.log{margin:0;border:1px solid var(--border);border-radius:10px;background:#0a1016;height:350px;overflow:auto;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;padding:10px}
   .l.ok{color:var(--ok)} .l.err{color:var(--err)} .l.inf{color:var(--inf)}
-  .list{display:flex;flex-direction:column;gap:8px}
-  .item{display:flex;justify-content:space-between;gap:8px;align-items:center;border:1px solid var(--border);border-radius:10px;padding:8px;background:#0c1219;flex-wrap:wrap}
-  .lhs{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .tag{border:1px solid var(--border);border-radius:999px;padding:2px 8px}
-  .tag.ok{color:var(--ok)} .tag.err{color:var(--err)} .tag.inf{color:var(--inf)}
-  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
-  .lat{font-weight:800;border:1px solid var(--border);border-radius:999px;padding:2px 8px}
-  .g{color:var(--ok)} .b{color:var(--blue)} .y{color:var(--warn)} .o{color:var(--timeout)} .r{color:var(--err)}
+  .list{display:flex;flex-direction:column;gap:8px;margin:8px 0}
+  .item{display:flex;justify-content:space-between;gap:8px;align-items:center;border:1px solid var(--border);border-radius:10px;padding:8px;background:#0c1219}
+  .lhs{display:flex;gap:8px;align-items:center}
+  .tag{border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:12px}
+  .tag.ok{color:var(--ok);border-color:var(--ok)} .tag.err{color:var(--err);border-color:var(--err)} .tag.inf{color:var(--inf)}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <!-- LOG -->
   <section class="card">
-    <div class="head">
-      <div>
-        <div class="title">Core Log</div>
-        <div class="sub">Sumber: CGI <code>/cgi-bin/hgled-log.sh
-</code>. Live follow via polling <b>0.5s</b>.</div>
-      </div>
-      <div class="row">
-        <label class="pill"><input id="fInfo" type="checkbox" checked> Info</label>
-        <label class="pill"><input id="fErr" type="checkbox" checked> Error</label>
-        <label class="pill"><input id="fOk"  type="checkbox" checked> Berhasil</label>
-        <button id="startFollow" class="btn">Start Follow</button>
-        <button id="stopFollow" class="btn">Stop Follow</button>
-        <button id="clearBtn" class="btn">Bersihkan</button>
-      </div>
+    <div class="row">
+      <label class="pill"><input id="fInfo" type="checkbox" checked> Info</label>
+      <label class="pill"><input id="fErr" type="checkbox" checked> Error</label>
+      <label class="pill"><input id="fOk" type="checkbox" checked> Berhasil</label>
+      <button id="startFollow" class="btn">Start</button>
+      <button id="stopFollow" class="btn">Stop</button>
+      <button id="clearBtn" class="btn">Clear</button>
     </div>
+    <div id="groupList" class="list"></div>
     <div class="row" style="margin-bottom:8px">
-      <span class="pill">Sumber log: <input id="logUrl" type="text" value="/cgi-bin/hgled-log.sh
-" size="24"></span>
+      <span class="pill">Sumber: <input id="logUrl" type="text" value="/cgi-bin/hgled-log.sh" size="24"></span>
       <label class="pill"><input id="autoscroll" type="checkbox" checked> Auto-scroll</label>
-      <span class="pill">Terakhir update: <span id="lastUp" class="mono">—</span></span>
+      <span class="pill">Update: <span id="lastUp" class="mono">—</span></span>
     </div>
     <pre id="log" class="log"></pre>
   </section>
-
-  <!-- PING -->
-  <section class="card">
-    <div class="head">
-      <div>
-        <div class="title">Ping per Grup</div>
-        <div class="sub">&lt;500ms hijau · 500–6000ms biru · &gt;6000ms kuning · timeout oranye · error merah</div>
-      </div>
-      <div class="row">
-        <!-- sesuai permintaan: tombol Ping Sekarang diubah untuk kontrol live follow;
-             jadi di panel ini hanya tombol Simpan -->
-        <button id="saveBtn" class="btn">Simpan</button>
-      </div>
-    </div>
-    <div class="row" style="margin-bottom:8px">
-      <span class="pill">Grup: <input id="groups" type="text" value="SGR_ACTIVE IDN_ACTIVE WRD_ACTIVE" size="28"></span>
-      <span class="pill">Controller: <input id="ctrlUrl" type="text" class="mono" size="22"></span>
-      <span class="pill">Secret: <input id="secret" type="password" value="12345" class="mono" size="10"></span>
-    </div>
-    <div class="row" style="margin-bottom:8px">
-      <span class="pill">Ping URL: <input id="pingUrl" type="text" value="http://www.gstatic.com/generate_204" size="32"></span>
-      <span class="pill">Timeout: <input id="timeoutMs" type="text" value="5000" size="5"> ms</span>
-      <span class="pill">Interval: <input id="pingInt" type="text" value="2000" size="5"> ms</span>
-    </div>
-    <div id="groupList" class="list"></div>
-  </section>
 </div>
-
 <script>
 (() => {
   const $ = s => document.querySelector(s);
-  const logEl = $('#log'), fInfo=$('#fInfo'), fErr=$('#fErr'), fOk=$('#fOk');
-  const lastUp=$('#lastUp'), urlInput=$('#logUrl'), autoScroll=$('#autoscroll');
-  const groupsEl=$('#groups'), ctrlUrlEl=$('#ctrlUrl'), secretEl=$('#secret');
-  const pingUrlEl=$('#pingUrl'), timeoutMsEl=$('#timeoutMs'), pingIntEl=$('#pingInt');
-  const saveBtn=$('#saveBtn'), clearBtn=$('#clearBtn');
-  const startBtn=$('#startFollow'), stopBtn=$('#stopFollow');
-  const groupList=$('#groupList');
+  const logEl = $('#log'), fInfo = $('#fInfo'), fErr = $('#fErr'), fOk = $('#fOk');
+  const lastUp = $('#lastUp'), urlInput = $('#logUrl'), autoScroll = $('#autoscroll');
+  const clearBtn = $('#clearBtn'), startBtn = $('#startFollow'), stopBtn = $('#stopFollow');
+  const groupList = $('#groupList');
 
-  // Defaults: controller = same host:9090 (bukan 127.0.0.1)
-  const defaultCtrl = `${location.protocol}//${location.hostname}:9090`;
-  ctrlUrlEl.value = defaultCtrl;
-
-  const LOG_REFRESH_MS = 1000; // 0.5s
-  let PING_REFRESH_MS = parseInt(pingIntEl.value,10)||2000;
-
-  let cacheText=''; let lastLines=[];
-  let stats={lastStatus:{}, lastSeen:{}};   // per grup: 'OK' | 'FAIL', timestamp
-  let latencies={}; // per grup: {val: ms|'timeout'|'error', ts:ms}
-
-  let logTimer=null;   // interval untuk live follow
-  let pingTimer=null;  // interval untuk ping otomatis
+  let cacheText = ''; let lastLines = [];
+  let lastLogTime = null; let logTimer = null;
+  let stats = {lastStatus: {}, lastSeen: {}};
 
   // --- utils
-  const esc = s => String(s).replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
-  const levelOf = (line) => {
-    const s=line.toLowerCase();
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  const levelOf = line => {
+    const s = line.toLowerCase();
     if (s.includes('fail:') || s.includes('error') || s.includes('gagal') || s.includes('alert')) return 'err';
     if (s.includes('ok:') || s.includes('berhasil') || s.includes('sukses')) return 'ok';
     return 'inf';
   };
-  const groupFrom = (line) => { const m=line.match(/\b(?:OK|FAIL):\s*([A-Z0-9_\-]+)/); return m?m[1]:null; };
-  function tsOf(line){
-    let m=line.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
-    if(m) return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`);
-    m=line.match(/^[A-Z][a-z]{2}\s+([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})\s+(\d{4})/);
-    if(m){
-      const idx={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10}[m[1]] ?? 0;
-      const d=parseInt(m[2],10), t=m[3].split(':').map(Number), y=parseInt(m[4],10);
+  const groupFrom = line => {
+    const m = line.match(/\b(?:OK|FAIL):\s*([A-Z0-9_-]+)/);
+    return m ? m[1] : null;
+  };
+  const tsOf = line => {
+    let m = line.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+    if (m) return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`);
+    m = line.match(/^[A-Z][a-z]{2}\s+([A-Z][a-z]{2})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})\s+(\d{4})/);
+    if (m) {
+      const idx = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11}[m[1]] ?? 0;
+      const d = parseInt(m[2],10), t = m[3].split(':').map(Number), y = parseInt(m[4],10);
       return new Date(y, idx, d, t[0], t[1], t[2]);
     }
     return null;
-  }
+  };
 
-  function parseLog(text){
-    const lines=text.split(/\r?\n/).filter(Boolean);
-    lastLines = lines.slice(-900);
-    stats={lastStatus:{}, lastSeen:{}};
-    for(const ln of lastLines){
-      const g=groupFrom(ln); const t=tsOf(ln); if(!g||!t) continue;
-      stats.lastSeen[g]=t.getTime();
-      const lvl=levelOf(ln);
-      if(lvl==='ok') stats.lastStatus[g]='OK';
-      else if(lvl==='err') stats.lastStatus[g]='FAIL';
+  function parseLog(text) {
+    try {
+      const json = JSON.parse(text);
+      lastLines = json.log || [];
+    } catch (e) {
+      lastLines = [text];
     }
-  }
-
-  function renderLog(){
-    const out=[];
-    for(const ln of lastLines){
-      const lvl=levelOf(ln);
-      if((lvl==='inf'&&!fInfo.checked)||(lvl==='err'&&!fErr.checked)||(lvl==='ok'&&!fOk.checked)) continue;
-      out.push(`<span class="l ${lvl}">${esc(ln)}</span>`);
-    }
-    logEl.innerHTML=out.join('\n');
-    if(autoScroll.checked) logEl.scrollTop=logEl.scrollHeight;
-  }
-
-  function latClass(v){
-    if(v==='timeout') return 'o';
-    if(v==='error') return 'r';
-    const ms=Number(v); if(isNaN(ms)) return 'r';
-    if(ms<500) return 'g';
-    if(ms<=6000) return 'b';
-    return 'y';
-  }
-
-  function renderGroups(){
-    const groups=(groupsEl.value||'').trim().split(/\s+/).filter(Boolean);
-    const html=groups.map(g=>{
-      const st=stats.lastStatus[g]||'—';
-      const tagCls=st==='OK'?'ok':(st==='FAIL'?'err':'inf');
-      const last=stats.lastSeen[g]? new Date(stats.lastSeen[g]).toLocaleTimeString() : '—';
-      const lat = latencies[g]?.val ?? '—';
-      const latLbl = (lat==='timeout'||lat==='error'||lat==='—')? String(lat) : (lat+' ms');
-      const latCls = latClass(lat);
-      return `<div class="item">
-        <div class="lhs">
-          <span class="tag ${tagCls}">${g}</span>
-          <span class="pill">Status: <span class="mono">${st}</span></span>
-          <span class="pill">Log terakhir: <span class="mono">${last}</span></span>
-        </div>
-        <div class="rhs">
-          <span class="lat ${latCls} mono">${latLbl}</span>
-        </div>
-      </div>`;
-    }).join('');
-    groupList.innerHTML=html;
-  }
-
-  async function fetchLogOnce(){
-    try{
-      const url=(urlInput.value||'/cgi-bin/hgled-log')+'?t='+(Date.now());
-      const res=await fetch(url,{cache:'no-store'});
-      const txt=await res.text();
-      if(txt!==cacheText){
-        cacheText=txt; parseLog(txt); renderLog(); renderGroups();
-        lastUp.textContent=new Date().toLocaleTimeString();
+    lastLogTime = null;
+    stats = {lastStatus: {}, lastSeen: {}};
+    for (const ln of lastLines) {
+      const t = tsOf(ln);
+      if (t && (!lastLogTime || t.getTime() > lastLogTime.getTime())) lastLogTime = t;
+      const g = groupFrom(ln);
+      if (g && t) {
+        stats.lastSeen[g] = t.getTime();
+        const lvl = levelOf(ln);
+        if (lvl === 'ok') stats.lastStatus[g] = 'OK';
+        else if (lvl === 'err') stats.lastStatus[g] = 'FAIL';
       }
-    }catch(e){
-      logEl.innerHTML = `<span class="l err">Gagal memuat log ${esc(urlInput.value)} — ${esc(e.message||e)}</span>`;
     }
   }
 
-  async function pingOne(base, secret, name, pingUrl, tmo){
-    const url = `${base.replace(/\/$/,'')}/proxies/${encodeURIComponent(name)}/delay?`+
-                new URLSearchParams({url:pingUrl, timeout:String(tmo)}).toString();
-    try{
-      const res = await fetch(url, {headers: secret? {'Authorization':`Bearer ${secret}`} : {}});
-      const js = await res.json();
-      return (typeof js.delay==='number')? js.delay : 'timeout';
-    }catch(_){ return 'error'; }
+  function renderLog() {
+    const out = lastLines
+      .filter(ln => (levelOf(ln) === 'inf' && fInfo.checked) || (levelOf(ln) === 'err' && fErr.checked) || (levelOf(ln) === 'ok' && fOk.checked))
+      .map(ln => `<span class="l ${levelOf(ln)}">${esc(ln)}</span>`);
+    logEl.innerHTML = out.join('\n');
+    if (autoScroll.checked) logEl.scrollTop = logEl.scrollHeight;
   }
 
-  async function refreshPing(){
-    const base = (ctrlUrlEl.value||defaultCtrl).trim();
-    const secret = secretEl.value;
-    const pingUrl = pingUrlEl.value.trim();
-    const tmo = parseInt(timeoutMsEl.value,10)||5000;
-    const groups=(groupsEl.value||'').trim().split(/\s+/).filter(Boolean);
-    await Promise.all(groups.map(async g=>{
-      latencies[g]={val: await pingOne(base,secret,g,pingUrl,tmo), ts:Date.now()};
-    }));
-    renderGroups();
+  function renderGroups() {
+    const groups = [...new Set(Object.keys(stats.lastStatus))].sort();
+    const html = groups.length ? groups.map(g => {
+      const st = stats.lastStatus[g] || '—';
+      const tagCls = st === 'OK' ? 'ok' : (st === 'FAIL' ? 'err' : 'inf');
+      const last = stats.lastSeen[g] ? new Date(stats.lastSeen[g]).toLocaleTimeString('id-ID') : '—';
+      return `<div class="item"><div class="lhs"><span class="tag ${tagCls}">${esc(g)}</span><span class="pill">Status: <span class="mono">${st}</span></span></div><span class="pill">Update: <span class="mono">${last}</span></span></div>`;
+    }).join('') : '<div class="item"><span class="pill">Tidak ada grup di log</span></div>';
+    groupList.innerHTML = html;
+  }
+
+  async function fetchLogOnce() {
+    try {
+      const url = (urlInput.value || '/cgi-bin/hgled-log.sh') + '?t=' + Date.now();
+      const res = await fetch(url, {cache: 'no-store'});
+      const txt = await res.text();
+      if (txt !== cacheText) {
+        cacheText = txt;
+        parseLog(txt);
+        renderLog();
+        renderGroups();
+        lastUp.textContent = lastLogTime ? lastLogTime.toLocaleTimeString('id-ID') : '—';
+        if (lastLogTime) {
+          const now = new Date();
+          const diff = now.getTime() - lastLogTime.getTime();
+          const nextRefresh = Math.max(500, Math.min(diff * 1.5, 5000)); // Antara 0.5s dan 5s
+          if (logTimer) clearInterval(logTimer);
+          logTimer = setInterval(fetchLogOnce, nextRefresh);
+        }
+      }
+    } catch (e) {
+      logEl.innerHTML = `<span class="l err">Gagal memuat log ${esc(urlInput.value)} — ${esc(e.message || e)}</span>`;
+    }
   }
 
   // persist
-  function save(){ localStorage.setItem('rotor_ui', JSON.stringify({
-    logUrl:urlInput.value, groups:groupsEl.value, ctrlUrl:ctrlUrlEl.value, secret:secretEl.value,
-    pingUrl:pingUrlEl.value, timeoutMs:timeoutMsEl.value, pingInt:pingIntEl.value
-  })); }
-  function load(){
-    try{
-      const s=JSON.parse(localStorage.getItem('rotor_ui')||'{}');
-      if(s.logUrl) urlInput.value=s.logUrl;
-      if(s.groups) groupsEl.value=s.groups;
-      if(s.ctrlUrl) ctrlUrlEl.value=s.ctrlUrl; else ctrlUrlEl.value=defaultCtrl;
-      if(s.secret) secretEl.value=s.secret;
-      if(s.pingUrl) pingUrlEl.value=s.pingUrl;
-      if(s.timeoutMs) timeoutMsEl.value=s.timeoutMs;
-      if(s.pingInt){ pingIntEl.value=s.pingInt; PING_REFRESH_MS=parseInt(s.pingInt,10)||2000; }
-    }catch{}
+  function save() {
+    localStorage.setItem('rotor_ui', JSON.stringify({logUrl: urlInput.value}));
   }
-
-  // Live follow controls
-  function startFollow(){
-    if(!logTimer){ fetchLogOnce(); logTimer=setInterval(fetchLogOnce, LOG_REFRESH_MS); }
-    if(!pingTimer){ refreshPing(); pingTimer=setInterval(refreshPing, PING_REFRESH_MS); }
-  }
-  function stopFollow(){
-    if(logTimer){ clearInterval(logTimer); logTimer=null; }
-    if(pingTimer){ clearInterval(pingTimer); pingTimer=null; }
+  function load() {
+    try {
+      const s = JSON.parse(localStorage.getItem('rotor_ui') || '{}');
+      if (s.logUrl) urlInput.value = s.logUrl;
+    } catch {}
   }
 
   // events
-  [fInfo,fErr,fOk].forEach(cb=>cb.addEventListener('change',renderLog));
-  clearBtn.addEventListener('click', ()=>{cacheText=''; lastLines=[]; stats={lastStatus:{},lastSeen:{}}; renderLog(); renderGroups();});
-  [urlInput,groupsEl,ctrlUrlEl,secretEl,pingUrlEl,timeoutMsEl,pingIntEl].forEach(el=>el.addEventListener('change',()=>{ save(); if(el===pingIntEl){ PING_REFRESH_MS=parseInt(pingIntEl.value,10)||2000; if(pingTimer){ clearInterval(pingTimer); pingTimer=setInterval(refreshPing, PING_REFRESH_MS);} } }));
-  saveBtn.addEventListener('click', save);
-  startBtn.addEventListener('click', startFollow);
-  stopBtn.addEventListener('click', stopFollow);
+  [fInfo, fErr, fOk].forEach(cb => cb.addEventListener('change', () => { renderLog(); renderGroups(); }));
+  clearBtn.addEventListener('click', () => { cacheText = ''; lastLines = []; lastLogTime = null; stats = {lastStatus: {}, lastSeen: {}}; renderLog(); renderGroups(); lastUp.textContent = '—'; });
+  urlInput.addEventListener('change', save);
+  startBtn.addEventListener('click', () => { if (!logTimer) { fetchLogOnce(); logTimer = setInterval(fetchLogOnce, 500); } });
+  stopBtn.addEventListener('click', () => { if (logTimer) { clearInterval(logTimer); logTimer = null; } });
 
-  // init (mulai dalam keadaan live follow ON)
+  // init
   load();
-  startFollow();
+  fetchLogOnce();
+  logTimer = setInterval(fetchLogOnce, 500);
 })();
 </script>
 </body>
