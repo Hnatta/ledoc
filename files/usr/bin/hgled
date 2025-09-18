@@ -142,31 +142,49 @@ loop_led(){
   hgledon -lan dis
   hgledon -power dis
 
-  # Logika baru untuk EXTERNAL_STATE=0: ping 5 detik, LED terus menerus
-  if [ "$EXTERNAL_STATE" = "0" ]; then
-    log "LED Service started in EXTERNAL_STATE=0 mode (ping every 5s)"
-    while :; do
-      if check_online; then
-        # LED Mode online terus menerus
-        hgledon -power on
-        hgledon -lan on
-        log "Internet OK - LED online mode"
-        sleep 5
-      else
-        # LED Mode offline terus menerus
-        hgledon -power off
-        hgledon -lan off
-        log "Internet FAIL - LED offline mode, ping every 3s until success"
-        # Ping ulang setiap 3 detik hingga berhasil
-        until check_online; do 
-          sleep 3
-          log "Retrying ping..."
-        done
-        log "Internet restored - back to 5s interval"
-      fi
-    done
-    return
+    # Logika untuk EXTERNAL_STATE=0: ping 10s (online) / 3s (offline) via start_health_check_bg, baca STATEFILE setelah ping
+ if [ "$EXTERNAL_STATE" = "0" ]; then
+  log "LED Service started in EXTERNAL_STATE=0"
+  mode="offline"; step=0; HEALTH_PID=""; last_check_time=0
+  printf "offline" >"$STATEFILE" 2>/dev/null || true
+
+  # Lakukan ping pertama kali saat script dijalankan
+  start_health_check_bg
+  log "Initial background health check started (pid $HEALTH_PID)"
+  sleep 0.1  # Beri waktu singkat agar STATEFILE diperbarui
+  desired="$(read_led_state)"
+  if [ "$desired" = "online" ] || [ "$desired" = "offline" ]; then
+    mode="$desired"
   fi
+  last_check_time=$(date +%s)
+
+  while :; do
+    # Periksa waktu untuk memicu health check berdasarkan status terakhir di STATEFILE
+    current_time=$(date +%s)
+    ping_interval=$([ "$(read_led_state)" = "online" ] && echo 30 || echo 3)  # 30s jika online, 3s jika offline
+    if [ $((current_time - last_check_time)) -ge "$ping_interval" ]; then
+      # Jalankan health check di background jika tidak ada proses health check yang berjalan
+      if [ -z "${HEALTH_PID:-}" ] || ! kill -0 "${HEALTH_PID}" 2>/dev/null; then
+        start_health_check_bg
+        log "Started background health check (pid $HEALTH_PID), next check in $ping_interval s"
+        # Baca STATEFILE segera setelah health check selesai
+        sleep 0.1  # Beri waktu singkat agar STATEFILE diperbarui
+        desired="$(read_led_state)"
+        if [ "$desired" = "online" ] || [ "$desired" = "offline" ]; then
+          mode="$desired"
+        fi
+        last_check_time=$current_time
+      fi
+    fi
+
+    # Terapkan animasi LED sesuai mode dan step
+    do_step "$mode" "$step"
+    delay="$(step_delay "$mode" "$step")"
+    step=$(( (step + 1) % 4 ))
+    [ "$delay" != "0" ] && sleep_compat "$delay"
+  done
+  return
+fi
 
   # Logika lama untuk EXTERNAL_STATE=1 (dikontrol rotor)
   log "LED Service started in EXTERNAL_STATE=1 mode (rotor controlled)"
