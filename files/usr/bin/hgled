@@ -35,9 +35,9 @@ PING_URL="${PING_URL:-https://www.gstatic.com/generate_204}"
 TIMEOUT_MS="${TIMEOUT_MS:-3000}"                 # utk /proxies/*/delay
 
 # Delay per-grup (detik) - tunda ping berikutnya
-SGR_ACTIVE_DELAY="${SGR_ACTIVE_DELAY:-120}"      # 120 detik untuk SGR_ACTIVE
-IDN_ACTIVE_DELAY="${IDN_ACTIVE_DELAY:-100}"      # 100 detik untuk IDN_ACTIVE
-WRD_ACTIVE_DELAY="${WRD_ACTIVE_DELAY:-80}"       # 80 detik untuk WRD_ACTIVE
+SGR_ACTIVE_DELAY="${SGR_ACTIVE_DELAY:-310}"      # untuk SGR_ACTIVE
+IDN_ACTIVE_DELAY="${IDN_ACTIVE_DELAY:-230}"      # untuk IDN_ACTIVE
+WRD_ACTIVE_DELAY="${WRD_ACTIVE_DELAY:-150}"       # untuk WRD_ACTIVE
 
 RETRY_GAP_SEC="${RETRY_GAP_SEC:-3}"              # jeda antar 2 retry saat grup gagal
 AFTER_CURL_WAIT_SEC="${AFTER_CURL_WAIT_SEC:-2}"  # tunggu 2 detik setelah curl fallback
@@ -142,7 +142,7 @@ loop_led(){
   hgledon -lan dis
   hgledon -power dis
 
-    # Logika untuk EXTERNAL_STATE=0: ping 10s (online) / 3s (offline) via start_health_check_bg, baca STATEFILE setelah ping
+    # Logika untuk EXTERNAL_STATE=0: 
  if [ "$EXTERNAL_STATE" = "0" ]; then
   log "LED Service started in EXTERNAL_STATE=0"
   mode="offline"; step=0; HEALTH_PID=""; last_check_time=0
